@@ -45,33 +45,40 @@ def get_next_backup_id():
     Get the next available backup ID by checking existing backup files in backup-id directory
     Returns the next sequential number for backup naming
     """
+    # โหลด config
+    try:
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+        filename_prefix = config.get('filename_prefix', 'conyfly')  # ใช้ค่าเริ่มต้นเป็น 'conyfly' ถ้าไม่มีในconfig
+    except:
+        filename_prefix = 'conyfly'  # ใช้ค่าเริ่มต้นถ้าไม่สามารถโหลด config ได้
+    
     backup_dir = "backup-id"
     if not os.path.exists(backup_dir):
         os.makedirs(backup_dir)
-        return 1
+        return 1, filename_prefix
         
-    # Get list of all backup files - เปลี่ยนจาก botick-id เป็น cony-id
-    existing_files = glob.glob(os.path.join(backup_dir, "cony-id*_LINE_COCOS_PREF_KEY_*.xml"))
+    # Get list of all backup files ใช้ filename_prefix จาก config
+    existing_files = glob.glob(os.path.join(backup_dir, f"{filename_prefix}-id*_LINE_COCOS_PREF_KEY_*.xml"))
     
     if not existing_files:
-        return 1
+        return 1, filename_prefix
         
     # Extract IDs from filenames and find the highest one
     ids = []
     for file in existing_files:
         try:
-            # Extract ID from filename like "cony-id123_LINE_COCOS_PREF_KEY_..."
-            id_part = file.split("cony-id")[1].split("_")[0]
+            # Extract ID from filename using the dynamic prefix
+            id_part = file.split(f"{filename_prefix}-id")[1].split("_")[0]
             if id_part.isdigit():
                 ids.append(int(id_part))
         except:
             continue
             
     if not ids:
-        return 1
+        return 1, filename_prefix
         
-    # Return next available ID
-    return max(ids) + 1
+    return max(ids) + 1, filename_prefix
 
 def get_backup_folder():
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1209,29 +1216,43 @@ def backup_game_data(device):
         INITIAL_WAIT = 5
         RESTART_DELAY = 10
         MAX_RETRIES = 3
-
-        # บันทึกเวลาเริ่มต้น
-        current_time = "2025-05-16 19:29:47"  # UTC time
+        
+        # บันทึกเวลาเริ่มต้น - ใช้เวลาปัจจุบัน
+        current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        current_user = "tablegub"
+        
         print(f"\nDevice {device.serial}: === เริ่มกระบวนการ Backup ===")
         print(f"Device {device.serial}: เวลาเริ่มต้น (UTC): {current_time}")
-        print(f"Device {device.serial}: ผู้ใช้งาน: leokungYT")
+        print(f"Device {device.serial}: ผู้ใช้งาน: {current_user}")
         
         # สร้างโฟลเดอร์ backup-id
         backup_dir = "backup-id"
         if not os.path.exists(backup_dir):
-            os.makedirs(backup_dir)
+            try:
+                os.makedirs(backup_dir)
+            except Exception as e:
+                print(f"Device {device.serial}: ไม่สามารถสร้างโฟลเดอร์ backup-id ได้: {e}")
+                return False
+            
+        # โหลด config สำหรับ filename prefix
+        try:
+            with open('config.json', 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            filename_prefix = config.get('filename_prefix', 'conyfly')
+        except Exception as e:
+            print(f"Device {device.serial}: ไม่สามารถโหลด config.json ได้: {e}")
+            filename_prefix = 'conyfly'
         
         # ดึงชื่อไฟล์ต้นฉบับ
         original_filename = device_state.original_filenames.get(device.serial)
         if not original_filename:
             print(f"Device {device.serial}: ไม่พบชื่อไฟล์ต้นฉบับ ใช้ชื่อเริ่มต้น")
-            # สร้างชื่อไฟล์แบบเดิม
-            next_id = get_next_backup_id()
-            backup_filename = f"cony-id{next_id}_LINE_COCOS_PREF_KEY_{current_time}.xml"
+            next_id, _ = get_next_backup_id()
+            backup_filename = f"{filename_prefix}-id{next_id}_LINE_COCOS_PREF_KEY_{current_time.replace(':', '-')}.xml"
         else:
-            # ใช้ชื่อไฟล์เดิมและเพิ่ม conyfly นำหน้า
+            # ใช้ชื่อไฟล์เดิมและเพิ่ม prefix จาก config
             filename_without_ext = os.path.splitext(original_filename)[0]
-            backup_filename = f"conyfly_{filename_without_ext}.xml"
+            backup_filename = f"{filename_prefix}-{filename_without_ext}_{current_time.replace(':', '-')}.xml"
         
         backup_path = os.path.join(backup_dir, backup_filename)
         device_id = device.serial
@@ -1251,42 +1272,66 @@ def backup_game_data(device):
             print(f"Device {device.serial}: ไม่สามารถขอสิทธิ์ root ได้: {e}")
 
         print(f"\nDevice {device.serial}: กำลัง Pull ไฟล์...")
-        try:
-            # ใช้คำสั่ง adb pull โดยตรง
-            pull_command = f'adb -s {device_id} pull "/data/data/com.linecorp.LGRGS/shared_prefs/_LINE_COCOS_PREF_KEY.xml" "{os.path.abspath(backup_path)}"'
-            result = subprocess.run(
-                pull_command,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=30
-            )
-            # ตรวจสอบผลลัพธ์
-            if result.returncode == 0 and os.path.exists(backup_path) and os.path.getsize(backup_path) > 0:
-                print(f"\nDevice {device.serial}: === Backup สำเร็จ ===")
-                print(f"Device {device.serial}: Backup path: {backup_path}")
-                print(f"Device {device.serial}: File size: {os.path.getsize(backup_path)} bytes")
-                print(f"Device {device.serial}: Backup filename: {backup_filename}")
-                
-                print(f"\nDevice {device.serial}: รอ {RESTART_DELAY} วินาทีก่อนเริ่มต้นใหม่...")
-                for i in range(RESTART_DELAY, 0, -1):
-                    print(f"Device {device.serial}: เหลือเวลา {i} วินาที")
-                    time.sleep(1)
-                
-                return True
-            else:
-                print(f"Device {device.serial}: Pull ไม่สำเร็จ: {result.stderr}")
-                return False
+        
+        # ทำการ pull ไฟล์พร้อมการ retry
+        for attempt in range(MAX_RETRIES):
+            try:
+                # ตรวจสอบว่าไฟล์มีอยู่จริงบนอุปกรณ์
+                check_file = device.shell("ls /data/data/com.linecorp.LGRGS/shared_prefs/_LINE_COCOS_PREF_KEY.xml")
+                if "_LINE_COCOS_PREF_KEY.xml" not in check_file:
+                    print(f"Device {device.serial}: ไม่พบไฟล์บนอุปกรณ์")
+                    return False
 
-        except Exception as e:
-            print(f"Device {device.serial}: เกิดข้อผิดพลาดในการ Pull: {e}")
-            return False
+                # ใช้คำสั่ง adb pull โดยตรง
+                pull_command = f'adb -s {device_id} pull "/data/data/com.linecorp.LGRGS/shared_prefs/_LINE_COCOS_PREF_KEY.xml" "{os.path.abspath(backup_path)}"'
+                result = subprocess.run(
+                    pull_command,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=30
+                )
+                
+                # ตรวจสอบผลลัพธ์
+                if result.returncode == 0 and os.path.exists(backup_path) and os.path.getsize(backup_path) > 0:
+                    print(f"\nDevice {device.serial}: === Backup สำเร็จ ===")
+                    print(f"Device {device.serial}: Backup path: {backup_path}")
+                    print(f"Device {device.serial}: File size: {os.path.getsize(backup_path)} bytes")
+                    print(f"Device {device.serial}: Backup filename: {backup_filename}")
+                    
+                    print(f"\nDevice {device.serial}: รอ {RESTART_DELAY} วินาทีก่อนเริ่มต้นใหม่...")
+                    for i in range(RESTART_DELAY, 0, -1):
+                        print(f"Device {device.serial}: เหลือเวลา {i} วินาที")
+                        time.sleep(1)
+                    
+                    return True
+                else:
+                    error_msg = result.stderr.strip() if result.stderr else "ไม่ทราบสาเหตุ"
+                    print(f"Device {device.serial}: Pull ไม่สำเร็จ (พยายามครั้งที่ {attempt + 1}/{MAX_RETRIES}): {error_msg}")
+                    if attempt < MAX_RETRIES - 1:
+                        print(f"Device {device.serial}: รอ {INITIAL_WAIT} วินาทีก่อนลองใหม่...")
+                        time.sleep(INITIAL_WAIT)
+                    continue
+
+            except subprocess.TimeoutExpired:
+                print(f"Device {device.serial}: Pull timeout (พยายามครั้งที่ {attempt + 1}/{MAX_RETRIES})")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(INITIAL_WAIT)
+                continue
+                
+            except Exception as e:
+                print(f"Device {device.serial}: เกิดข้อผิดพลาดในการ Pull (พยายามครั้งที่ {attempt + 1}/{MAX_RETRIES}): {e}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(INITIAL_WAIT)
+                continue
+
+        print(f"Device {device.serial}: Pull ไม่สำเร็จหลังจากพยายาม {MAX_RETRIES} ครั้ง")
+        return False
 
     except Exception as e:
         print(f"Device {device.serial}: เกิดข้อผิดพลาดในการ Backup: {e}")
         return False
-
 
 def check_for_hero1(device):
     """ฟังก์ชันตรวจสอบการมีอยู่ของ heroo1.png"""
@@ -1304,6 +1349,7 @@ def check_for_hero1(device):
     except Exception as e:
         print(f"เกิดข้อผิดพลาดในการค้นหา heroo1.png: {e}")
         return False
+
 
 def process_single_device(device):
     """
@@ -1340,7 +1386,7 @@ def process_single_device(device):
             message: ข้อความที่ต้องการบันทึก
             status_type: ประเภทของสถานะ (INFO, WARNING, ERROR)
         """
-        current_time = "2025-05-16 19:22:27"  # UTC time
+        current_time = "2025-05-24 14:14:00"  # UTC time
         print(f"\n[{status_type}] [{current_time}] Device {device.serial}: {message}")
 
     def check_device_connection():
@@ -1367,8 +1413,8 @@ def process_single_device(device):
     while True:
         try:
             # แสดงข้อมูลเริ่มต้น
-            current_time = "2025-05-16 19:22:27"  # UTC time
-            current_user = "leokungYT"
+            current_time = "2025-05-24 14:14:00"  # UTC time
+            current_user = "tablegub"
             log_status(f"""
             === สถานะการทำงาน ===
             เวลาปัจจุบัน (UTC): {current_time}
@@ -1383,12 +1429,16 @@ def process_single_device(device):
                 adaptive_delay(5.0)
                 continue
 
-            # ตรวจสอบ heroo1.png
+            # ตัวแปรเก็บสถานะว่าได้ทำ backup แล้วหรือยัง
+            backup_done = False
+
+            # ตรวจสอบ heroo1.png ครั้งแรก
             if check_for_hero1(device):
                 log_status("พบ heroo1.png - ดำเนินการ backup ทันที")
                 backup_result = backup_game_data(device)
                 if backup_result:
                     log_status("Backup สำเร็จ")
+                    backup_done = True  # ทำ backup เรียบร้อยแล้ว
                     clear_app(device)
                     adaptive_delay(5.0)
                     cleanup_resources()
@@ -1422,10 +1472,25 @@ def process_single_device(device):
                     log_status("เริ่มกระบวนการ swap shop")
                     swap_result = process_swap_shop(device)
                     
-                    # ตรวจสอบและทำ backup หลังจาก swap_shop เสร็จถ้าไม่พบ heroo1.png
-                    if not check_for_hero1(device):
-                        log_status("ยังไม่พบ heroo1.png หลัง swap shop - ทำการ backup ไฟล์")
-                        backup_failed_game_data(device)
+                    # ตรวจสอบ heroo1.png หลังจาก swap_shop เสร็จ
+                    if not backup_done:  # ถ้ายังไม่ได้ทำ backup
+                        if check_for_hero1(device):
+                            log_status("พบ heroo1.png หลัง swap shop - ทำการ backup")
+                            backup_result = backup_game_data(device)
+                            if backup_result:
+                                log_status("Backup สำเร็จ")
+                                backup_done = True
+                            else:
+                                log_status("Backup ล้มเหลว", "WARNING")
+                        else:
+                            # ถ้าไม่เจอ heroo1.png และยังไม่ได้ทำ backup ให้ส่งไปที่ random-Fail
+                            log_status("ไม่พบ heroo1.png หลัง swap shop - ทำการ backup ไปที่ random-Fail")
+                            backup_result = backup_failed_game_data(device)
+                            if backup_result:
+                                log_status("Backup ไปที่ random-Fail สำเร็จ")
+                                backup_done = True
+                            else:
+                                log_status("Backup ไปที่ random-Fail ล้มเหลว", "WARNING")
                     
                     # ทำความสะอาดและเริ่มใหม่
                     cleanup_resources()
@@ -1440,7 +1505,7 @@ def process_single_device(device):
                 
             # แสดงสถานะทุก 30 วินาที
             if time.time() % 30 < 1:
-                current_time = "2025-05-16 19:22:27"  # UTC time
+                current_time = "2025-05-24 14:14:00"  # UTC time
                 log_status(f"""
 === อัพเดทสถานะ ===
 เวลา (UTC): {current_time}
