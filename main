@@ -160,16 +160,14 @@ def find_mumu_ports():
         return []
     
     
-    
-
 def process_swap_shop(device):
     """ฟังก์ชันสำหรับประมวลผล swap shop และจัดการการ backup"""
     print(f"\nเริ่มกระบวนการ swap shop สำหรับอุปกรณ์: {device.serial}")
     
     # แสดงเวลาและผู้ใช้งาน
-    current_time = "2025-05-17 07:55:43"  # UTC time
+    current_time = "2025-05-24 20:21:05"  # UTC time
     print(f"Current Date and Time (UTC - YYYY-MM-DD HH:MM:SS formatted): {current_time}")
-    print(f"Current User's Login: leokungYT")
+    print(f"Current User's Login: tablegub")
     
     # ตัวแปรควบคุมการทำงาน
     found_initial_swap_shop = False
@@ -207,7 +205,7 @@ def process_swap_shop(device):
                     print(f"เลือกช่อง {selected_channel} - เลื่อนหน้าจอขึ้นก่อน")
                     device.shell(f"input swipe 852 316 855 116 600")
                     time.sleep(1)  # รอให้การเลื่อนเสร็จสิ้น
-                    return config['channels'][selected_channel]  # ส่งค่าตำแหน่งตามที่กำหนดใน config
+                    return config['channels'][selected_channel]
                 
                 return config['channels'][selected_channel]
         except Exception as e:
@@ -250,6 +248,21 @@ def process_swap_shop(device):
             adb_img = cv2.imdecode(image, cv2.IMREAD_COLOR)
             current_time = time.time()
             
+            # ตรวจสอบ heroo1.png เป็นอันดับแรก
+            hero_pos = ImgSearchADB(adb_img, 'img/heroo1.png')
+            if hero_pos:
+                print(f"\nพบ heroo1.png บนอุปกรณ์ {device.serial} - ดำเนินการ backup ทันที")
+                backup_result = backup_game_data(device)
+                if backup_result:
+                    print(f"Backup สำเร็จสำหรับอุปกรณ์ {device.serial}")
+                    clear_app(device)
+                    time.sleep(5)
+                    return "backup_complete"
+                else:
+                    print(f"Backup ล้มเหลวสำหรับอุปกรณ์ {device.serial}")
+                    time.sleep(5)
+                    continue
+
             # ตรวจสอบ stopgacha4.png เป็นพิเศษ
             stopgacha4_pos = ImgSearchADB(adb_img, 'img/stopgacha4.png')
             if stopgacha4_pos:
@@ -315,40 +328,24 @@ def process_swap_shop(device):
                 last_image_hash = current_hash
                 last_image_time = current_time
             
-            # 1. ตรวจสอบ heroo1.png
-            hero_pos = ImgSearchADB(adb_img, 'img/heroo1.png')
-            if hero_pos:
-                print(f"\nพบ heroo1.png บนอุปกรณ์ {device.serial} - ดำเนินการ backup ทันที")
-                backup_result = backup_game_data(device)
-                if backup_result:
-                    print(f"Backup สำเร็จสำหรับอุปกรณ์ {device.serial}")
-                    clear_app(device)
-                    time.sleep(5)
-                    return "backup_complete"
-                else:
-                    print(f"Backup ล้มเหลวสำหรับอุปกรณ์ {device.serial}")
-                    time.sleep(5)
-                    continue
-            
-            # 2. ตรวจสอบ New Soldier Brown
-            if check_new_soldier_brown(device):
-                continue
-            
-            # 3. ตรวจสอบ stopgacha5, stopgacha7, และ stopgacha8
+            # ตรวจสอบ stopgacha5, stopgacha7, และ stopgacha8
             for stop_img in ['stopgacha5.png', 'stopgacha7.png', 'stopgacha8.png']:
                 stop_pos = ImgSearchADB(adb_img, f'img/{stop_img}')
                 if stop_pos:
-                    print(f"\nพบ {stop_img} - จบการทำงาน")
-                    current_time = "2025-05-17 07:55:43"  # UTC time
-                    print(f"End Time (UTC): {current_time}")
-                    event_pos = ImgSearchADB(adb_img, 'img/event.png')
-                    if event_pos:
-                        device.shell(f"input tap {event_pos[0][0]} {event_pos[0][1]}")
-                        last_click_position = event_pos[0]
-                        time.sleep(1)
+                    print(f"\nพบ {stop_img} บนอุปกรณ์ {device.serial} - จบการทำงาน")
+                    # ถ้าไม่พบ heroo1.png ทำการ backup ไปที่ random-Fail
+                    if not hero_pos:
+                        print(f"ไม่พบ heroo1.png บนอุปกรณ์ {device.serial} - ทำการ backup ไปที่ random-Fail")
+                        if backup_failed_game_data(device):
+                            print(f"Backup ไปที่ random-Fail สำเร็จสำหรับอุปกรณ์ {device.serial}")
+                        else:
+                            print(f"Backup ไปที่ random-Fail ล้มเหลวสำหรับอุปกรณ์ {device.serial}")
+                    
+                    clear_app(device)
+                    time.sleep(5)
                     return "complete"
 
-            # 4. ค้นหา gacha.png
+            # ค้นหา gacha.png
             if not found_initial_swap_shop:
                 swap_shop_pos = ImgSearchADB(adb_img, 'img/gacha.png')
                 if swap_shop_pos:
@@ -359,7 +356,7 @@ def process_swap_shop(device):
                     time.sleep(1)
                     continue
 
-            # 5. ตรวจสอบ waitgacha.png และเลือกช่อง
+            # ตรวจสอบ waitgacha.png และเลือกช่อง
             if not checked_waitgacha:
                 wait_pos = ImgSearchADB(adb_img, 'img/waitgacha.png')
                 if wait_pos:
@@ -385,7 +382,7 @@ def process_swap_shop(device):
                     time.sleep(1)
                     continue
 
-            # 6. ชุดที่ 1: ทำงานตามลำดับ
+            # ชุดที่ 1: ทำงานตามลำดับ
             if first_sequence_position < 3:
                 purchase_sequence = ['stopgacha.png', 'stopgacha1.png', 'stopgacha2.png']
                 current_img = purchase_sequence[first_sequence_position]
@@ -403,7 +400,7 @@ def process_swap_shop(device):
                         first_sequence_position = 3
                     continue
 
-            # 7. ชุดที่ 2: ทำงานตามลำดับ
+            # ชุดที่ 2: ทำงานตามลำดับ
             second_sequence = ['stopgacha4.png', 'stopgacha6.png', 'stopgacha2.png']
             if second_sequence_position < len(second_sequence):
                 current_img = second_sequence[second_sequence_position]
@@ -425,20 +422,20 @@ def process_swap_shop(device):
                         second_sequence_position = 0
                         print(f"เริ่มชุดที่ 2 ใหม่สำหรับอุปกรณ์ {device.serial}")
 
-            # 8. แสดงสถานะทุก 30 วินาที
+            # แสดงสถานะทุก 30 วินาที
             if time.time() % 30 < 1:
-                current_time = "2025-05-17 07:55:43"  # UTC time
-                print(f"\nStatus Update (UTC): {current_time}")
-                print(f"Device: {device.serial}")
+                print(f"\nStatus Update - Device {device.serial}")
                 print(f"Current Position: Sequence 1 - {first_sequence_position}/3, Sequence 2 - {second_sequence_position}/3")
                 if stopgacha4_last_seen:
                     time_waiting = time.time() - stopgacha4_last_seen
                     print(f"Stopgacha4 waiting time: {time_waiting:.1f} seconds")
 
-            # 9. ทำ Garbage Collection ทุก 5 นาที
+            # ทำ Garbage Collection ทุก 5 นาที
             if time.time() % 300 < 1:
                 gc.collect()
 
+            time.sleep(1)
+            
         except Exception as e:
             print(f"เกิดข้อผิดพลาด: {e}")
             time.sleep(1)
@@ -1150,60 +1147,63 @@ def process_single_file_for_device(device):
 
 def backup_failed_game_data(device):
     """
-    ฟังก์ชันสำหรับ backup ข้อมูลเกมที่ไม่พบ hero1.png ไปยังโฟลเดอร์ random-Fail
+    Backup game data when hero1.png is not found to random-Fail folder
     """
     try:
         # สร้างโฟลเดอร์ random-Fail ถ้ายังไม่มี
-        if not os.path.exists('random-Fail'):
-            os.makedirs('random-Fail')
-            print(f"สร้างโฟลเดอร์ random-Fail สำเร็จ")
-
-        current_time = "2025-05-24 18:11:07"  # UTC time
-        current_user = "tablegub"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        random_fail_dir = os.path.join(current_dir, "random-Fail")
+        if not os.path.exists(random_fail_dir):
+            os.makedirs(random_fail_dir)
+            print(f"Created random-Fail folder at: {random_fail_dir}")
 
         # ค้นหาไฟล์ XML ในเครื่อง
-        file_pattern = "(B)Sally*LINE_COCOS_PREF_KEY.xml"
-        result = device.shell(f'find /data/data/jp.naver.line.android.game.LineRangers/shared_prefs -name "{file_pattern}"')
+        source_path = "/data/data/com.linecorp.LGRGS/shared_prefs/_LINE_COCOS_PREF_KEY.xml"
         
-        if not result:
-            print(f"ไม่พบไฟล์ XML ที่ต้องการใน device {device.serial}")
-            return False
-
-        source_file = result.strip()
-        filename = os.path.basename(source_file)
+        # รับชื่อไฟล์ต้นฉบับจาก device_state (ถ้ามี)
+        original_filename = device_state.original_filenames.get(device.serial)
         
-        # ตั้งชื่อไฟล์ปลายทาง
-        backup_path = os.path.join('random-Fail', filename)
+        # สร้างชื่อไฟล์สำหรับ backup แบบไม่มี timestamp
+        if original_filename:
+            # ใช้ชื่อไฟล์ต้นฉบับเดิม
+            base_name = os.path.splitext(original_filename)[0]  # ลบนามสกุลไฟล์ออก
+            backup_filename = f"{base_name}.xml"
+        else:
+            # ถ้าไม่มีชื่อต้นฉบับ ใช้ชื่อเริ่มต้น
+            backup_filename = "(B)Sally.xml"
+            
+        backup_path = os.path.join(random_fail_dir, backup_filename)
 
-        print(f"\nDevice {device.serial}: === เริ่มกระบวนการ Backup ===")
-        print(f"Device {device.serial}: เวลาเริ่มต้น (UTC): {current_time}")
-        print(f"Device {device.serial}: ผู้ใช้งาน: {current_user}")
-        print(f"\nDevice {device.serial}: === ข้อมูล Backup ===")
-        print(f"Device {device.serial}: - ชื่อไฟล์ต้นฉบับ: {filename}")
-        print(f"Device {device.serial}: - Path: {backup_path}")
-        print(f"Device {device.serial}: - Device ID: {device.serial}")
+        print(f"\nDevice {device.serial}: === Starting Failed Backup Process ===")
+        print(f"Backup path: {backup_path}")
 
-        print(f"\nDevice {device.serial}: กำลังขอสิทธิ์ root เพื่อ copy ไฟล์...")
-        device.shell('su -c "chmod 777 ' + source_file + '"')
+        # ขอสิทธิ์ root และตั้งค่า permissions
+        device.shell("su -c 'chmod 777 /data/data/com.linecorp.LGRGS/shared_prefs'")
+        device.shell(f"su -c 'chmod 777 {source_path}'")
 
-        print(f"\nDevice {device.serial}: กำลัง Pull ไฟล์...")
-        device.pull(source_file, backup_path)
+        # ใช้คำสั่ง adb pull โดยตรง
+        pull_command = f'adb -s {device.serial} pull "{source_path}" "{backup_path}"'
+        result = subprocess.run(
+            pull_command, 
+            shell=True, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            text=True
+        )
 
-        # ตรวจสอบว่าไฟล์ถูกคัดลอกสำเร็จหรือไม่
-        if os.path.exists(backup_path):
+        if result.returncode == 0 and os.path.exists(backup_path):
             file_size = os.path.getsize(backup_path)
-            print(f"\nDevice {device.serial}: === Backup ไฟล์ที่ไม่พบ hero1.png สำเร็จ ===")
-            print(f"Device {device.serial}: Backup path: {backup_path}")
-            print(f"Device {device.serial}: File size: {file_size} bytes")
+            print(f"\nDevice {device.serial}: === Failed Backup Successful ===")
+            print(f"Backup location: {backup_path}")
+            print(f"File size: {file_size} bytes")
             return True
         else:
-            print(f"\nDevice {device.serial}: ไม่สามารถ backup ไฟล์ได้")
+            print(f"\nDevice {device.serial}: Backup failed: {result.stderr}")
             return False
 
     except Exception as e:
-        print(f"เกิดข้อผิดพลาดในการ backup: {str(e)}")
+        print(f"Error during failed backup: {str(e)}")
         return False
-
 
 def load_channel_config():
     """Load channel configuration from config file"""
@@ -1233,21 +1233,8 @@ def get_channel_position():
     return None
 
 def backup_game_data(device):
-    """Backup game data with sequential ID naming and detailed logging"""
+    """Backup game data with sequential ID naming"""
     try:
-        # กำหนดค่าคงที่
-        INITIAL_WAIT = 5
-        RESTART_DELAY = 10
-        MAX_RETRIES = 3
-        
-        # บันทึกเวลาเริ่มต้น - ใช้เวลาปัจจุบัน
-        current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        current_user = "tablegub"
-        
-        print(f"\nDevice {device.serial}: === เริ่มกระบวนการ Backup ===")
-        print(f"Device {device.serial}: เวลาเริ่มต้น (UTC): {current_time}")
-        print(f"Device {device.serial}: ผู้ใช้งาน: {current_user}")
-        
         # สร้างโฟลเดอร์ backup-id
         backup_dir = "backup-id"
         if not os.path.exists(backup_dir):
@@ -1271,11 +1258,11 @@ def backup_game_data(device):
         if not original_filename:
             print(f"Device {device.serial}: ไม่พบชื่อไฟล์ต้นฉบับ ใช้ชื่อเริ่มต้น")
             next_id, _ = get_next_backup_id()
-            backup_filename = f"{filename_prefix}-id{next_id}_LINE_COCOS_PREF_KEY_{current_time.replace(':', '-')}.xml"
+            backup_filename = f"{filename_prefix}-id{next_id}.xml"
         else:
             # ใช้ชื่อไฟล์เดิมและเพิ่ม prefix จาก config
             filename_without_ext = os.path.splitext(original_filename)[0]
-            backup_filename = f"{filename_prefix}-{filename_without_ext}_{current_time.replace(':', '-')}.xml"
+            backup_filename = f"{filename_prefix}-{filename_without_ext}.xml"
         
         backup_path = os.path.join(backup_dir, backup_filename)
         device_id = device.serial
@@ -1297,6 +1284,7 @@ def backup_game_data(device):
         print(f"\nDevice {device.serial}: กำลัง Pull ไฟล์...")
         
         # ทำการ pull ไฟล์พร้อมการ retry
+        MAX_RETRIES = 3
         for attempt in range(MAX_RETRIES):
             try:
                 # ตรวจสอบว่าไฟล์มีอยู่จริงบนอุปกรณ์
@@ -1322,31 +1310,25 @@ def backup_game_data(device):
                     print(f"Device {device.serial}: Backup path: {backup_path}")
                     print(f"Device {device.serial}: File size: {os.path.getsize(backup_path)} bytes")
                     print(f"Device {device.serial}: Backup filename: {backup_filename}")
-                    
-                    print(f"\nDevice {device.serial}: รอ {RESTART_DELAY} วินาทีก่อนเริ่มต้นใหม่...")
-                    for i in range(RESTART_DELAY, 0, -1):
-                        print(f"Device {device.serial}: เหลือเวลา {i} วินาที")
-                        time.sleep(1)
-                    
                     return True
                 else:
                     error_msg = result.stderr.strip() if result.stderr else "ไม่ทราบสาเหตุ"
                     print(f"Device {device.serial}: Pull ไม่สำเร็จ (พยายามครั้งที่ {attempt + 1}/{MAX_RETRIES}): {error_msg}")
                     if attempt < MAX_RETRIES - 1:
-                        print(f"Device {device.serial}: รอ {INITIAL_WAIT} วินาทีก่อนลองใหม่...")
-                        time.sleep(INITIAL_WAIT)
+                        print(f"Device {device.serial}: รอ 5 วินาทีก่อนลองใหม่...")
+                        time.sleep(5)
                     continue
 
             except subprocess.TimeoutExpired:
                 print(f"Device {device.serial}: Pull timeout (พยายามครั้งที่ {attempt + 1}/{MAX_RETRIES})")
                 if attempt < MAX_RETRIES - 1:
-                    time.sleep(INITIAL_WAIT)
+                    time.sleep(5)
                 continue
                 
             except Exception as e:
                 print(f"Device {device.serial}: เกิดข้อผิดพลาดในการ Pull (พยายามครั้งที่ {attempt + 1}/{MAX_RETRIES}): {e}")
                 if attempt < MAX_RETRIES - 1:
-                    time.sleep(INITIAL_WAIT)
+                    time.sleep(5)
                 continue
 
         print(f"Device {device.serial}: Pull ไม่สำเร็จหลังจากพยายาม {MAX_RETRIES} ครั้ง")
@@ -1355,6 +1337,7 @@ def backup_game_data(device):
     except Exception as e:
         print(f"Device {device.serial}: เกิดข้อผิดพลาดในการ Backup: {e}")
         return False
+
 
 def check_for_hero1(device):
     """ฟังก์ชันตรวจสอบการมีอยู่ของ heroo1.png"""
