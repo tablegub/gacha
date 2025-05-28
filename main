@@ -506,7 +506,7 @@ def func_7day(device):
     print(f"กำลังตรวจสอบกิจกรรม 7 วันสำหรับอุปกรณ์: {device.serial}")
     
     # ค้นหา 7day.png ก่อน
-    for attempt in range(3):
+    for attempt in range(1):
         try:
             print(f"\nกำลังค้นหา 7day.png (พยายามครั้งที่ {attempt + 1}/3)")
             cap = device.screencap()
@@ -526,7 +526,7 @@ def func_7day(device):
 
     # วนลูปค้นหา 7day1.png และ ok.png
     no_7day1_count = 0  # นับจำนวนครั้งที่ไม่เจอ 7day1
-    max_no_find = 3     # จำนวนครั้งที่ต้องไม่เจอ 7day1 ติดต่อกันถึงจะออกจากลูป
+    max_no_find = 1     # จำนวนครั้งที่ต้องไม่เจอ 7day1 ติดต่อกันถึงจะออกจากลูป
     
     while True:
         try:
@@ -677,7 +677,7 @@ def main_box(device):
         image_sequence = ['box1.png', 'box2.png', 'box3.png', 'box4.png', 'box5.png']
         sequence_index = 0
         start_time = time.time()
-        timeout = 30
+        timeout = 3
         
         while sequence_index < len(image_sequence):
             try:
@@ -866,7 +866,7 @@ def main_login(device):
                 current_image = 'fixid.png'
                 fixid_count += 1
                 print(f"พบ fixid บนอุปกรณ์ {device.serial} - ครั้งที่: {fixid_count}")
-                if fixid_count >= 8:
+                if fixid_count >= 3:
                     print(f"พบ fixid.png ครบ 8 ครั้งบนอุปกรณ์ {device.serial}")
                     print(f"กำลังเคลียร์แอปและเริ่มกระบวนการใหม่...")
                     clear_app(device)
@@ -1362,7 +1362,18 @@ def process_single_device(device):
     พารามิเตอร์:
         device: อุปกรณ์ ADB ที่ต้องการประมวลผล
     """
+    def load_feature_config(feature_name, default=0):
+        """Load feature configuration from config file"""
+        try:
+            with open('config.json', 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            return config.get(feature_name, default)
+        except Exception as e:
+            print(f"Device {device.serial}: ไม่สามารถโหลดการตั้งค่า {feature_name}: {e}")
+            return default
+
     def adaptive_delay(base_delay=1.0, factor=1.0):
+        """ฟังก์ชันหน่วงเวลาแบบปรับตัวได้"""
         try:
             cpu_info = device.shell("dumpsys cpuinfo | grep TOTAL")
             if "TOTAL" in cpu_info:
@@ -1379,14 +1390,17 @@ def process_single_device(device):
             time.sleep(base_delay * factor)
 
     def cleanup_resources():
+        """ฟังก์ชันทำความสะอาดทรัพยากร"""
         import gc
         gc.collect()
 
     def log_status(message, status_type="INFO"):
-        current_time = "2025-05-24 16:14:51"  # UTC time
+        """ฟังก์ชันบันทึกสถานะการทำงาน"""
+        current_time = "2025-05-25 05:57:17"  # UTC time
         print(f"\n[{status_type}] [{current_time}] Device {device.serial}: {message}")
 
     def check_device_connection():
+        """ฟังก์ชันตรวจสอบการเชื่อมต่อของอุปกรณ์"""
         try:
             device.shell("echo 'test connection'")
             return True
@@ -1406,7 +1420,7 @@ def process_single_device(device):
     while True:
         try:
             # แสดงข้อมูลเริ่มต้น
-            current_time = "2025-05-24 16:14:51"  # UTC time
+            current_time = "2025-05-25 05:57:17"  # UTC time
             current_user = "tablegub"
             log_status(f"""
             === สถานะการทำงาน ===
@@ -1414,6 +1428,18 @@ def process_single_device(device):
             ผู้ใช้งาน: {current_user}
             อุปกรณ์: {device.serial}
             ======================
+            """)
+
+            # โหลดการตั้งค่าทั้งหมด
+            seven_day_enabled = load_feature_config('7day', 0)
+            swap_shop_enabled = load_feature_config('swap_shop', 1)  # default เป็น 1
+
+            # แสดงสถานะการตั้งค่า
+            log_status(f"""
+            === การตั้งค่าการทำงาน ===
+            7 Day: {'เปิด' if seven_day_enabled else 'ปิด'}
+            Swap Shop: {'เปิด' if swap_shop_enabled else 'ปิด'}
+            =========================
             """)
 
             # ตรวจสอบไฟล์ XML
@@ -1430,21 +1456,45 @@ def process_single_device(device):
                 login_result = main_login(device)
                 
                 if login_result == "restart":
-                    log_status("พบ fixid ครบ 8 รอบ กำลังเริ่มกระบวนการใหม่")
+                    log_status("พบ fixid ครบ 8 รอบ กำลังทำ backup ไปที่ login-fail")
+                    # เพิ่มการ backup ไปที่โฟลเดอร์ login-fail
+                    if backup_failed_login(device):
+                        log_status("Backup ไปที่ login-fail สำเร็จ")
+                    else:
+                        log_status("Backup ไปที่ login-fail ล้มเหลว", "ERROR")
+                    
                     cleanup_resources()
+                    clear_app(device)
+                    time.sleep(6)
                     continue
                     
                 elif login_result == "normal_complete":
+                    # ตรวจสอบและทำงาน 7day
+                    if seven_day_enabled:
+                        log_status("เริ่มกระบวนการ 7 วัน")
+                        func_7day(device)
+                        adaptive_delay(0.8)
+                    else:
+                        log_status("ข้ามกระบวนการ 7 วัน (ปิดใช้งาน)")
+                    
                     # ทำ main_box
                     log_status("เริ่มกระบวนการกล่อง")
                     main_box(device)
                     adaptive_delay(0.8)
                     
-                    # เริ่มกระบวนการ swap_shop (ย้ายการตรวจสอบ heroo1.png ไปที่ฟังก์ชัน process_swap_shop)
-                    log_status("เริ่มกระบวนการ swap shop")
-                    swap_result = process_swap_shop(device)
+                    # ตรวจสอบและทำงาน swap_shop
+                    if swap_shop_enabled:
+                        log_status("เริ่มกระบวนการ swap shop")
+                        swap_result = process_swap_shop(device)
+                        
+                        # ตรวจสอบผลลัพธ์จาก swap_shop
+                        if swap_result == "backup_complete":
+                            log_status("Swap shop และ backup เสร็จสมบูรณ์")
+                        elif swap_result == "complete":
+                            log_status("Swap shop เสร็จสมบูรณ์")
+                    else:
+                        log_status("ข้ามกระบวนการ swap shop (ปิดใช้งาน)")
                     
-                    # หลังจาก swap_shop เสร็จ ไม่ว่าจะเจอ heroo1.png หรือไม่ ฟังก์ชัน process_swap_shop จะจัดการ backup ให้เรียบร้อยแล้ว
                     clear_app(device)
                     cleanup_resources()
                     continue
@@ -1455,11 +1505,12 @@ def process_single_device(device):
                 
             # แสดงสถานะทุก 30 วินาที
             if time.time() % 30 < 1:
-                current_time = "2025-05-24 16:14:51"  # UTC time
+                current_time = "2025-05-25 05:57:17"  # UTC time
                 log_status(f"""
 === อัพเดทสถานะ ===
 เวลา (UTC): {current_time}
 อุปกรณ์: {device.serial}
+สถานะ: กำลังทำงาน
 ==================
                 """)
                 cleanup_resources()
@@ -1476,6 +1527,66 @@ def process_single_device(device):
 
             cleanup_resources()
 
+def backup_failed_login(device):
+    """
+    Backup game data when fixid count reaches 8 to login-fail folder
+    """
+    try:
+        # สร้างโฟลเดอร์ login-fail ถ้ายังไม่มี
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        login_fail_dir = os.path.join(current_dir, "login-fail")
+        if not os.path.exists(login_fail_dir):
+            os.makedirs(login_fail_dir)
+            print(f"Created login-fail folder at: {login_fail_dir}")
+
+        # ค้นหาไฟล์ XML ในเครื่อง
+        source_path = "/data/data/com.linecorp.LGRGS/shared_prefs/_LINE_COCOS_PREF_KEY.xml"
+        
+        # รับชื่อไฟล์ต้นฉบับจาก device_state
+        original_filename = device_state.original_filenames.get(device.serial)
+        
+        # สร้างชื่อไฟล์สำหรับ backup
+        if original_filename:
+            # ใช้ชื่อไฟล์ต้นฉบับเดิม
+            backup_filename = original_filename
+        else:
+            # ถ้าไม่มีชื่อต้นฉบับ ใช้ชื่อเริ่มต้น
+            backup_filename = f"login-fail_{device.serial}.xml"
+            
+        backup_path = os.path.join(login_fail_dir, backup_filename)
+
+        print(f"\nDevice {device.serial}: === Starting Login-Fail Backup Process ===")
+        print(f"Current Date and Time (UTC): 2025-05-25 05:55:54")
+        print(f"Current User's Login: tablegub")
+        print(f"Backup path: {backup_path}")
+
+        # ขอสิทธิ์ root และตั้งค่า permissions
+        device.shell("su -c 'chmod 777 /data/data/com.linecorp.LGRGS/shared_prefs'")
+        device.shell(f"su -c 'chmod 777 {source_path}'")
+
+        # ใช้คำสั่ง adb pull โดยตรง
+        pull_command = f'adb -s {device.serial} pull "{source_path}" "{backup_path}"'
+        result = subprocess.run(
+            pull_command, 
+            shell=True, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if result.returncode == 0 and os.path.exists(backup_path):
+            file_size = os.path.getsize(backup_path)
+            print(f"\nDevice {device.serial}: === Login-Fail Backup Successful ===")
+            print(f"Backup location: {backup_path}")
+            print(f"File size: {file_size} bytes")
+            return True
+        else:
+            print(f"\nDevice {device.serial}: Login-Fail Backup failed: {result.stderr}")
+            return False
+
+    except Exception as e:
+        print(f"Error during login-fail backup: {str(e)}")
+        return False
 
 def get_connected_devices():
     try:
